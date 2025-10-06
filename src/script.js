@@ -11,6 +11,15 @@ let dataArray;
 let bufferLength;
 let source;
 
+let essentia;
+button.disabled = true;
+EssentiaWASM().then(EssentiaModule => {
+  essentia = new EssentiaModule.Essentia();
+  console.log("Essentia.js ready!");
+  button.disabled = false;
+});
+
+
 function freqToMidi(f) {
   return 69 + 12 * Math.log2(f / A4); // convert Hz → MIDI note number
 }
@@ -51,40 +60,48 @@ button.onclick = async () => {
 function draw() {
   requestAnimationFrame(draw);
 
-  // Get the spectrum
-  const freqData = new Uint8Array(analyser.frequencyBinCount);
-  analyser.getByteFrequencyData(freqData);
+  if (!essentia) return; // wait until Essentia.js is ready
 
-  // Prepare a 12-element array (C..B)
-  const pcp = new Float32Array(12);
+  // 1️⃣ Get a short PCM frame (time-domain)
+  const frame = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(frame);
 
-  const binHz = audioCtx.sampleRate / analyser.fftSize;
+  // 2️⃣ Convert to an Essentia vector
+  const vec = essentia.arrayToVector(frame);
 
-  // Only consider bins in guitar range (~70–1500 Hz)
-  const lo = Math.floor(70 / binHz);
-  const hi = Math.min(freqData.length, Math.ceil(1500 / binHz));
+  // 3️⃣ Compute spectrum & spectral peaks
+  const windowed = essentia.Windowing(vec);
+  const spectrum = essentia.Spectrum(windowed);
+  const peaks = essentia.SpectralPeaks(spectrum);
 
-  for (let k = lo; k < hi; k++) {
-    const f = k * binHz;
-    const amp = freqData[k] / 255; // normalize 0-1
-    const pc = midiToPitchClass(freqToMidi(f));
-    pcp[pc] += amp;
-  }
+  // 4️⃣ Compute HPCP (12-bin chroma)
+  const hpcp = essentia.HPCP(
+    peaks.frequencies,
+    peaks.magnitudes,
+    12,   // number of bins
+    440,  // reference frequency (A4)
+    8,    // number of harmonics
+    false // non-linear weighting
+  );
 
-  // Normalize
-  const sum = pcp.reduce((a,b)=>a+b,0)+1e-9;
-  for (let i=0;i<12;i++) pcp[i]/=sum;
+  // 5️⃣ Convert Essentia's vector back to JS array
+  const pcp = essentia.vectorToArray(hpcp);
 
-  // Draw bars
+  // 6️⃣ Draw the bars (same visualization)
   ctx.fillStyle = "#0b0e12";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const barWidth = canvas.width / 12;
   for (let i = 0; i < 12; i++) {
-    const h = pcp[i] * canvas.height * 2.5;
-    ctx.fillStyle = "hsl(" + (i*30) + ",100%,60%)";
-    ctx.fillRect(i*barWidth + 2, canvas.height - h, barWidth - 4, h);
-    ctx.fillText(NOTE_NAMES[i], i*barWidth + barWidth/2 - 8, canvas.height - 400);
+    const h = pcp[i] * canvas.height * 3;
+    ctx.fillStyle = `hsl(${i*30},100%,60%)`;
+    ctx.fillRect(i * barWidth + 2, canvas.height - h, barWidth - 4, h);
+    ctx.fillText(
+      NOTE_NAMES[i],
+      i * barWidth + barWidth / 2 - 8,
+      canvas.height - 4
+    );
   }
 }
+
 
