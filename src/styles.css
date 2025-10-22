@@ -1,6 +1,6 @@
 body {
   margin: 0;
-  background: #0b0e12;
+  background:plum;
   color: white;
   font-family: system-ui, sans-serif;
   display: flex;
@@ -15,7 +15,7 @@ header {
 canvas {
   width: 90vw;
   height: 50vh;
-  background: #111;
+  background: plum;
   border: 1px solid #333;
   border-radius: 8px;
 }
